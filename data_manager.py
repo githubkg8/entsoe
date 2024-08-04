@@ -68,10 +68,11 @@ class DataManager():
         # Get the last timestamp from the database 
         # Set the periodStart and periodEnd for day ahead
         # Convert the local timezone to UTC
-        table_name='power_price'
         schema_name='HUN'
+        table_name='power_price'
+        column_name='UTC'
 
-        last_timestamp=self.sql_manager.read_sql(table_name,schema_name)
+        last_timestamp=self.sql_manager.get_last_column_element(schema_name,table_name,column_name)
         day_ahead_end = datetime.now() + timedelta(days=2)
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(day_ahead_end.year,day_ahead_end.month,day_ahead_end.day,0,0)
@@ -85,8 +86,6 @@ class DataManager():
 
             # Upload the data to the SQL table
             try:
-                table_name='power_price'
-                schema_name='HUN'
                 success=self.sql_manager.upload_sql(df_da_prices,table_name,schema_name)
                 if success:
                     logger.info(f"power_prices refreshed successfully! ({periodStart_localtz.strftime('%Y-%m-%d')} - {(periodEnd_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
