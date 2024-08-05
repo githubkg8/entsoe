@@ -22,6 +22,17 @@ class SQLManager():
         except Exception as e:
             logger.error(f"Error while uploading {table_name}: {e}")
 
+    def read_table(self,schema_name,table_name,latest_count=0):
+        '''Reads a SQL table to a pandas dataframe'''
+
+        try:
+            df_all=pd.read_sql(f'SELECT * FROM "{schema_name}".{table_name}', con=self.db_engine)
+            df=df_all.tail(latest_count)
+            logger.info(f"{table_name} table read successfully!")
+        except Exception as e:
+            logger.error(f"Error while reading {table_name}: {e}")
+        return df
+
     def get_last_column_element(self,schema_name,table_name,column_name):
         '''Reads a SQL table to a pandas dataframe'''
 
