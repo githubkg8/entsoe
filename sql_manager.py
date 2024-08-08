@@ -15,7 +15,6 @@ class SQLManager():
 
     def upload_sql(self,df,table_name,schema_name):
         '''Uploads a pandas dataframe to a SQL table'''
-
         try:
             df.to_sql(table_name, con=self.db_engine, schema=schema_name, if_exists='append', index=False)
             return True
@@ -24,23 +23,19 @@ class SQLManager():
 
     def read_table(self,schema_name,table_name,latest_count=0):
         '''Reads a SQL table to a pandas dataframe'''
-
         try:
             df_all=pd.read_sql(f'SELECT * FROM "{schema_name}".{table_name}', con=self.db_engine)
             df=df_all.tail(latest_count)
-            logger.info(f"{table_name} table read successfully!")
         except Exception as e:
-            logger.error(f"Error while reading {table_name}: {e}")
+            logger.error(f"Error while reading {schema_name} {table_name}: {e}")
         return df
 
     def get_last_column_element(self,schema_name,table_name,column_name):
         '''Reads a SQL table to a pandas dataframe'''
-
         try:
             last_timestamp=pd.read_sql(f'SELECT MAX("{column_name}") FROM "{schema_name}".{table_name}', con=self.db_engine).values[0][0]
-            logger.info(f"{table_name} table read successfully!")
         except Exception as e:
-            logger.error(f"Error while reading {table_name}: {e}")
+            logger.error(f"Error while reading {table_name} table {column_name} column's last element: {e}")
         return last_timestamp
     
 
