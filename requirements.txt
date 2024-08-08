@@ -1,6 +1,10 @@
+pandas
+numpy
+requests
+datetime
 pytz
 logging
-pandas
-datetime
 sqlalchemy
 psycopg2
+zipfile
+io
