@@ -4,6 +4,7 @@ from datetime import datetime
 class TimeZoneManager():
     def __init__(self,local_timezone) -> None:
         self.local_tz=pytz.timezone(local_timezone)
+        self.utc_tz=pytz.UTC
 
     def get_utc_time(self, date: str) -> datetime:
         try:
