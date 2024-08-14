@@ -1,6 +1,8 @@
 import logging
-from sqlalchemy import create_engine
+import pytz
 import pandas as pd
+from sqlalchemy import create_engine
+from datetime import datetime
 
 from credentials import POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DATABASE
 
@@ -37,6 +39,16 @@ class SQLManager():
         except Exception as e:
             logger.error(f"Error while reading {table_name} table {column_name} column's last element: {e}")
         return last_timestamp
-    
 
-        
+class TimeZoneManager():
+    def __init__(self,local_timezone) -> None:
+        self.local_tz=pytz.timezone(local_timezone)
+        self.utc_tz=pytz.UTC
+
+    def get_utc_time(self, date: str) -> datetime:
+        try:
+            local_date=self.local_tz.localize(date)
+            utc_time = local_date.astimezone(pytz.UTC)
+            return utc_time
+        except ValueError as e:
+            raise ValueError(f"Invalid date format: {e}")

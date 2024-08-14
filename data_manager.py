@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from credentials import ENTSOE_TOKEN
 from entsoe_codes import EntsoeCodes
-from timezones import TimeZoneManager
+from sql_manager import TimeZoneManager
 from sql_manager import SQLManager
 
 
