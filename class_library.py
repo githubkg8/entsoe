@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class SQLManager():
+    '''Class to manage SQL operations'''
     def __init__(self) -> None:
         self.db_engine = create_engine(url = f'postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:5432/{POSTGRES_DATABASE}')
 
@@ -41,6 +42,7 @@ class SQLManager():
         return last_timestamp
 
 class TimeZoneManager():
+    '''Class to manage UTC and local timezones'''
     def __init__(self,local_timezone) -> None:
         self.local_tz=pytz.timezone(local_timezone)
         self.utc_tz=pytz.UTC
@@ -54,6 +56,7 @@ class TimeZoneManager():
             raise ValueError(f"Invalid date format: {e}")
         
 class EntsoeCodes:
+    '''Class to store ENTSO-E codes'''
     class MarketAgreement:
         Daily = "A01"
         Weekly = "A02"
