@@ -1,6 +1,15 @@
+import logging
 from data_manager import DataManager
 
-entsoe=DataManager(schema="HUN",local_timezone='CET')
+def main():
+    try:
+        entsoe = DataManager(schema="HUN", local_timezone='CET')
+        entsoe.update_power_prices()
+        entsoe.update_activated_balancing_energy()
+    
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        raise e
 
-entsoe.update_power_prices()
-entsoe.update_activated_balancing_energy()
+if __name__ == "__main__":
+    main()
