@@ -28,7 +28,7 @@ class DataManager():
         self.UTC_column="UTC"
         self.base_url=f"https://web-api.tp.entsoe.eu/api?securityToken={ENTSOE_TOKEN}"
 
-    def get_entsoe_response(self,params):
+    def __get_entsoe_response(self,params):
         '''Basic function to get any response from ENTSO-E API with given parameters'''
         try:
             response = requests.get(self.base_url, params=params)
@@ -59,7 +59,7 @@ class DataManager():
             logger.error(f"ENTSO-E API CALL Error: {response.status_code}, {soup.find('Reason').find('text').text}")
         return response
 
-    def get_power_prices(self,periodStart,periodEnd):
+    def __get_power_prices(self,periodStart,periodEnd):
         '''Get the day ahead power prices for Hungary, UTC timezone, fromat: YYYYMMDDhhmm'''
 
         params={
@@ -70,7 +70,7 @@ class DataManager():
             "periodEnd" : periodEnd
             }
 
-        response=self.get_entsoe_response(params)
+        response=self.__get_entsoe_response(params)
         soup=BeautifulSoup(response.text, 'xml')
 
         try:
@@ -95,7 +95,7 @@ class DataManager():
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'DA_price': prices})
         return df
     
-    def get_balancing_energy(self,periodStart,periodEnd):
+    def __get_balancing_energy(self,periodStart,periodEnd):
         '''Get the activated balancing energy for Hungary in MW, UTC timezone, fromat: YYYYMMDDhhmm'''
         # DOMESTIC ACTIVATED BALANCING ENERGY
         params={
@@ -105,7 +105,7 @@ class DataManager():
             "periodEnd" : periodEnd
             }
 
-        response=self.get_entsoe_response(params)
+        response=self.__get_entsoe_response(params)
         soup=BeautifulSoup(response.text, 'xml')
         
         try:
@@ -171,7 +171,7 @@ class DataManager():
             "periodEnd" : periodEnd
             }
 
-        response=self.get_entsoe_response(params)
+        response=self.__get_entsoe_response(params)
         soup=BeautifulSoup(response.text, 'xml')
         
         try:
@@ -223,7 +223,7 @@ class DataManager():
             "periodEnd" : periodEnd
             }
 
-        response=self.get_entsoe_response(params)
+        response=self.__get_entsoe_response(params)
         soup=BeautifulSoup(response.text, 'xml')
 
         try:
@@ -259,7 +259,7 @@ class DataManager():
 
         if periodStart != periodEnd:
             # Get the power prices from ENTSO-E API, returns a pd dataframe
-            df_da_prices=self.get_power_prices(periodStart,periodEnd)
+            df_da_prices=self.__get_power_prices(periodStart,periodEnd)
 
             # Upload the data to the SQL table
             try:
@@ -297,7 +297,7 @@ class DataManager():
                     periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
                     periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
                 
-                    df_abe=self.get_balancing_energy(periodStart,periodEnd)
+                    df_abe=self.__get_balancing_energy(periodStart,periodEnd)
 
                     # Upload the data to the SQL table
                     try:
