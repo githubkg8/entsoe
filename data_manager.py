@@ -9,9 +9,9 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
 from credentials import ENTSOE_TOKEN
-from entsoe_codes import EntsoeCodes
-from sql_manager import TimeZoneManager
-from sql_manager import SQLManager
+from class_library import EntsoeCodes
+from class_library import TimeZoneManager
+from class_library import SQLManager
 
 
 # Configure logging
