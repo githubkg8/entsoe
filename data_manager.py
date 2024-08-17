@@ -60,6 +60,17 @@ class DataManager():
             logger.error(f"ENTSO-E API CALL Error: {response.status_code}, {soup.find('Reason').find('text').text}")
         return response
 
+    def __upload_sql(self,df,table_name,periodStart_localtz,periodEnd_localtz):
+        '''Uploads the dataframe to the SQL table'''
+        try:
+            success=self.sql_manager.upload_sql(df,table_name,self.schema_name)
+            if success:
+                logger.info(f"{table_name} refreshed successfully! ({periodStart_localtz.strftime('%Y-%m-%d')} - {(periodEnd_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+                return "Success"
+        except Exception as e:
+            logger.error(f"Error while refreshing {table_name}: {e}")
+            return f"Error: {e}"
+
     def __get_power_prices(self,periodStart,periodEnd):
         '''Get the day ahead power prices for Hungary, UTC timezone, fromat: YYYYMMDDhhmm'''
 
@@ -330,17 +341,21 @@ class DataManager():
 
         if periodStart != periodEnd:
             # Get the power prices from ENTSO-E API, returns a pd dataframe
-            df_da_prices=self.__get_power_prices(periodStart,periodEnd)
+            # Maximum period is 1 year, if the period is longer, it is divided into 1 day periods
+            if periodEnd_localtz - periodStart_localtz < timedelta(days=365):
+                df_da_prices=self.__get_power_prices(periodStart,periodEnd)
+                self.__upload_sql(df_da_prices,table_name,periodStart_localtz,periodEnd_localtz)
 
-            # Upload the data to the SQL table
-            try:
-                success=self.sql_manager.upload_sql(df_da_prices,table_name,self.schema_name)
-                if success:
-                    logger.info(f"power_prices refreshed successfully! ({periodStart_localtz.strftime('%Y-%m-%d')} - {(periodEnd_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
-                    return "Success"
-            except Exception as e:
-                logger.error(f"Error while refreshing power_prices: {e}")
-                return f"Error: {e}"
+            else:
+                for day in range((periodEnd_localtz - periodStart_localtz).days):
+                    periodStart_i = periodStart_localtz+ timedelta(days=day)
+                    periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+                    periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                    periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+                    
+                    df_da_prices=self.__get_power_prices(periodStart,periodEnd)
+                    self.__upload_sql(df_da_prices,table_name,periodStart_i,periodEnd_i)                
+
         else:
             logger.info(f"power_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
@@ -371,14 +386,8 @@ class DataManager():
                 periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
             
                 df_abe=self.__get_balancing_energy(periodStart,periodEnd)
-
-                # Upload the data to the SQL table
-                try:
-                    success=self.sql_manager.upload_sql(df_abe,table_name,self.schema_name)
-                    if success:
-                        logger.info(f"activated_balancing_energy refreshed successfully! ({periodStart_i.strftime('%Y-%m-%d')} - {(periodEnd_i+timedelta(-1)).strftime('%Y-%m-%d')})")
-                except Exception as e:
-                    logger.error(f"Error while refreshing power_prices: {e}")
+                self.__upload_sql(df_abe,table_name,periodStart_i,periodEnd_i)
+                
         else:
                 logger.info(f"activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
     
@@ -407,12 +416,4 @@ class DataManager():
                 periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
 
                 df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
-
-                # Upload the data to the SQL table
-                try:
-                    success=self.sql_manager.upload_sql(df_fuelmix,table_name,self.schema_name)
-                    if success:
-                        logger.info(f"fuelmix refreshed successfully! ({periodStart} - {periodEnd})")
-                except Exception as e:
-                    logger.error(f"Error while refreshing fuelmix: {e}")
-                    return f"Error: {e}"
+                self.__upload_sql(df_fuelmix,table_name,periodStart_i,periodEnd_i)
