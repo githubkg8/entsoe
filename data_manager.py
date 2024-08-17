@@ -390,6 +390,7 @@ class DataManager():
                 
         else:
                 logger.info(f"activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+                return "No new data to update"
     
     def update_fuelmix(self):
         '''Refreshes the fuelmix data from the last updated date until recent data'''
@@ -417,3 +418,6 @@ class DataManager():
 
                 df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
                 self.__upload_sql(df_fuelmix,table_name,periodStart_i,periodEnd_i)
+        else:
+            logger.info(f"fuelmix is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            return "No new data to update"
