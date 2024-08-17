@@ -24,6 +24,7 @@ class DataManager():
         self.entsoe_codes=EntsoeCodes()
         self.timezone_manager=TimeZoneManager(local_timezone)
         self.sql_manager=SQLManager()
+        self.data_start_date=datetime(2019,12,31,23,0)
         self.schema_name=schema
         self.UTC_column="UTC"
         self.base_url=f"https://web-api.tp.entsoe.eu/api?securityToken={ENTSOE_TOKEN}"
@@ -317,6 +318,9 @@ class DataManager():
         table_name='power_price'
 
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        if last_timestamp is None:
+            last_timestamp=self.data_start_date
+            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
         day_ahead_end = datetime.now() + timedelta(days=2)
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1) 
         periodEnd_localtz = datetime(day_ahead_end.year,day_ahead_end.month,day_ahead_end.day,0,0) 
@@ -350,6 +354,9 @@ class DataManager():
         table_name='activated_balancing_energy'
 
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        if last_timestamp is None:
+            last_timestamp=self.data_start_date
+            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
         today = datetime.now()
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
@@ -385,7 +392,7 @@ class DataManager():
 
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         if last_timestamp is None:
-            last_timestamp=datetime(2019,12,31,23,0)
+            last_timestamp=self.data_start_date
             logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
         today = datetime.now()
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
