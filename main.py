@@ -6,6 +6,7 @@ def main():
         entsoe = DataManager(schema="HUN", local_timezone='CET')
         entsoe.update_power_prices()
         entsoe.update_activated_balancing_energy()
+        entsoe.update_fuelmix()
     
     except Exception as e:
         logging.error(f"Error: {e}")

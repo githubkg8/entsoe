@@ -213,7 +213,7 @@ class DataManager():
                 f.write(soup.prettify())
 
 
-        # PRICES OF ACTIVATED AFRR BALANCING ENERGY
+        # PRICES OF ACTIVATED DOMESTIC BALANCING ENERGY
         
         params={
             "documentType" : self.entsoe_codes.DocumentType.Activated_balancing_prices,
@@ -241,6 +241,73 @@ class DataManager():
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'down_afrr': afrr_down, 'down_igcc': igcc_down, 'down_mfrr': mfrr_down, 'up_afrr': afrr_up, 'up_igcc': igcc_up, 'up_mfrr': mfrr_up, 'down_price': price_down, 'up_price': price_up})
         return df
 
+    def __get_fuelmix(self,periodStart,periodEnd):
+        '''Get the day ahead power prices for Hungary, UTC timezone, fromat: YYYYMMDDhhmm'''
+
+        params={
+            "documentType" : self.entsoe_codes.DocumentType.Actual_generation_per_type,
+            "in_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "ProcessType" : self.entsoe_codes.ProcessType.Realised,
+            "periodStart" : periodStart,
+            "periodEnd" : periodEnd,
+            }
+
+        response=self.__get_entsoe_response(params)
+        soup=BeautifulSoup(response.text, 'xml')
+
+        try:
+            days = [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
+            RESOLUTION=timedelta(minutes=int(soup.find('resolution').getText().split('T')[1].split('M')[0]))
+            # response is with codes, need to convert to readable format
+            # get db column names (source types)
+            response_production_per_type = {ts.find('psrType').get_text(): [int(quantity.get_text()) for quantity in ts.find_all("quantity")] for ts in soup.find_all('TimeSeries')}
+            response_production_per_type = {self.entsoe_codes.PsrType.dict[key]: response_production_per_type[key] for key in response_production_per_type.keys()}
+            response_ts_max_length = max([len(response_production_per_type[key]) for key in response_production_per_type.keys()])
+            db_source_types = [row.column_name for index, row in self.sql_manager.get_column_names(self.schema_name, 'fuelmix')[2:].iterrows()]
+
+            # filling with 0s if source type not covering the whole period
+            for time_series in soup.find_all('TimeSeries'):
+                start_source_series=datetime.strptime(time_series.find('timeInterval').find('start').get_text(), '%Y-%m-%dT%H:%MZ')
+                end_source_series=datetime.strptime(time_series.find('timeInterval').find('end').get_text(), '%Y-%m-%dT%H:%MZ')
+                source_type = self.entsoe_codes.PsrType.dict[time_series.find('psrType').get_text()]
+                
+                if len(time_series.find_all('quantity')) < response_ts_max_length:
+                    if len(response_production_per_type[source_type]) < response_ts_max_length:
+                        logger.warning(f"Source type {source_type} does not cover the whole period! ({start_source_series} - {end_source_series}) Filling data with 0s...")
+                        response_production_per_type[source_type]=np.zeros(response_ts_max_length)
+                    original_response = [int(quantity.get_text()) for quantity in time_series.find_all('quantity')]
+                    i=0
+                    for quantity in original_response:
+                        index=(start_source_series - datetime.strptime(periodStart, '%Y%m%d%H%M')) // RESOLUTION + i
+                        response_production_per_type[source_type][index] = quantity
+                        i+=1
+
+                    with open(f'troubleshoot/fuelmix_{source_type}_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+                        f.write(str(response_production_per_type[source_type]))
+
+            # fill with 0s psr_types that are missing from the response
+            for source_type in db_source_types:
+                if source_type not in response_production_per_type.keys():
+                    response_production_per_type[source_type] = [0 for _ in range(len(response_production_per_type[next(iter(response_production_per_type))]))]
+
+            datetimes_utc = []
+            datetimes_local = []
+            start_date = self.timezone_manager.get_utc_time(days[0])
+            for period in range(len(response_production_per_type[next(iter(response_production_per_type))])):
+                datetimes_utc.append(start_date + period*RESOLUTION)
+                datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
+        except Exception as e:
+            logger.error(f"Error while getting fuelmix: {soup.find('Reason').find('text').text}")
+            response_production_per_type = []
+            datetimes_utc = []
+            datetimes_local = []
+
+            with open(f'troubleshoot/fuelmix_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+                f.write(soup.prettify())
+
+        df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, **response_production_per_type})
+        return df
+    
     def update_power_prices(self):
         '''Refreshes the power prices from the last updated date until days ahead'''
 
@@ -249,7 +316,7 @@ class DataManager():
         # Convert the local timezone to UTC
         table_name='power_price'
 
-        last_timestamp=self.sql_manager.get_last_column_element(self.schema_name,table_name,self.UTC_column)
+        last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         day_ahead_end = datetime.now() + timedelta(days=2)
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1) 
         periodEnd_localtz = datetime(day_ahead_end.year,day_ahead_end.month,day_ahead_end.day,0,0) 
@@ -275,40 +342,70 @@ class DataManager():
             return "No new data to update"
 
     def update_activated_balancing_energy(self):
-            '''Refreshes the activated balancing energy from the last updated date until days ahead'''
+        '''Refreshes the activated balancing energy from the last updated date until recent data'''
 
-            # Get the last timestamp from the database
-            # Set the periodStart and periodEnd for day ahead
-            # Convert the local timezone to UTC
-            table_name='activated_balancing_energy'
+        # Get the last timestamp from the database
+        # Set the periodStart and periodEnd for recent data
+        # Convert the local timezone to UTC
+        table_name='activated_balancing_energy'
 
-            last_timestamp=self.sql_manager.get_last_column_element(self.schema_name,table_name,self.UTC_column)
-            today = datetime.now()
-            periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
-            periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
+        last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        today = datetime.now()
+        periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
+        periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
 
-            #  EACH DAY IS RUNNED SEPARATELY (if incorrect mfrr data, fixed by adding 0s to the end of the array) 
-            return_list = []
-            if periodStart_localtz != periodEnd_localtz:
-                for day in range((periodEnd_localtz - periodStart_localtz).days):
-                    periodStart_i = periodStart_localtz+ timedelta(days=day)
-                    periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+        #  EACH DAY IS RUNNED SEPARATELY (if incorrect mfrr data, fixed by adding 0s to the end of the array) 
+        if periodStart_localtz != periodEnd_localtz:
+            for day in range((periodEnd_localtz - periodStart_localtz).days):
+                periodStart_i = periodStart_localtz+ timedelta(days=day)
+                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
 
-                    periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
-                    periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
-                
-                    df_abe=self.__get_balancing_energy(periodStart,periodEnd)
+                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+            
+                df_abe=self.__get_balancing_energy(periodStart,periodEnd)
 
-                    # Upload the data to the SQL table
-                    try:
-                        success=self.sql_manager.upload_sql(df_abe,table_name,self.schema_name)
-                        if success:
-                            logger.info(f"activated_balancing_energy refreshed successfully! ({periodStart_i.strftime('%Y-%m-%d')} - {(periodEnd_i+timedelta(-1)).strftime('%Y-%m-%d')})")
-                            return_list.append("Success")
-                    except Exception as e:
-                        logger.error(f"Error while refreshing power_prices: {e}")
-                        return_list.append(f"Error: {e}")
-            else:
-                    logger.info(f"activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
-                    return_list.append("No new data to update")
-            return return_list
+                # Upload the data to the SQL table
+                try:
+                    success=self.sql_manager.upload_sql(df_abe,table_name,self.schema_name)
+                    if success:
+                        logger.info(f"activated_balancing_energy refreshed successfully! ({periodStart_i.strftime('%Y-%m-%d')} - {(periodEnd_i+timedelta(-1)).strftime('%Y-%m-%d')})")
+                except Exception as e:
+                    logger.error(f"Error while refreshing power_prices: {e}")
+        else:
+                logger.info(f"activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+    
+    def update_fuelmix(self):
+        '''Refreshes the fuelmix data from the last updated date until recent data'''
+
+        # Get the last timestamp from the database
+        # Set the periodStart and periodEnd for recent data
+        # Convert the local timezone to UTC
+        table_name='fuelmix'
+
+        last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        if last_timestamp is None:
+            last_timestamp=datetime(2019,12,31,23,0)
+            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+        today = datetime.now()
+        periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
+        periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
+
+        if periodStart_localtz != periodEnd_localtz:
+            for day in range((periodEnd_localtz - periodStart_localtz).days):
+                periodStart_i = periodStart_localtz+ timedelta(days=day)
+                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+
+                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+
+                df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
+
+                # Upload the data to the SQL table
+                try:
+                    success=self.sql_manager.upload_sql(df_fuelmix,table_name,self.schema_name)
+                    if success:
+                        logger.info(f"fuelmix refreshed successfully! ({periodStart} - {periodEnd})")
+                except Exception as e:
+                    logger.error(f"Error while refreshing fuelmix: {e}")
+                    return f"Error: {e}"
