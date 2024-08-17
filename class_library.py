@@ -33,13 +33,21 @@ class SQLManager():
             logger.error(f"Error while reading {schema_name} {table_name}: {e}")
         return df
 
-    def get_last_column_element(self,schema_name,table_name,column_name):
+    def get_last_row_element(self,schema_name,table_name,column_name):
         '''Reads a SQL table to a pandas dataframe'''
         try:
             last_timestamp=pd.read_sql(f'SELECT MAX("{column_name}") FROM "{schema_name}".{table_name}', con=self.db_engine).values[0][0]
         except Exception as e:
             logger.error(f"Error while reading {table_name} table {column_name} column's last element: {e}")
         return last_timestamp
+    
+    def get_column_names(self,schema_name,table_name):
+        '''Reads the columns name from an SQL table to a pandas dataframe'''
+        try:
+            columns=pd.read_sql(f'SELECT column_name FROM information_schema.columns WHERE table_schema = \'{schema_name}\' AND table_name = \'{table_name}\'', con=self.db_engine)
+        except Exception as e:
+            logger.error(f"Error while reading {table_name} table columns: {e}")
+        return columns
 
 class TimeZoneManager():
     '''Class to manage UTC and local timezones'''
@@ -78,6 +86,27 @@ class EntsoeCodes:
         Hourly = "A04"
     
     class PsrType:
+        dict = {"B01" : "Biomass",
+                "B02" : "Fossil_Brown_coal_Lignite",
+                "B03" : "Fossil_Coal_derived_gas",
+                "B04" : "Fossil_Gas",
+                "B05" : "Fossil_Hard_coal",
+                "B06" : "Fossil_Oil",
+                "B07" : "Fossil_Oil_shale",
+                "B08" : "Fossil_Peat",
+                "B09" : "Geothermal",
+                "B10" : "Hydro_Pumped_Storage",
+                "B11" : "Hydro_Run_of_river_and_poundage",
+                "B12" : "Hydro_Water_Reservoir",
+                "B13" : "Marine",
+                "B14" : "Nuclear",
+                "B15" : "Other_renewable",
+                "B16" : "Solar",
+                "B17" : "Waste",
+                "B18" : "Wind_Offshore",
+                "B19" : "Wind_Onshore",
+                "B20" : "Other"}
+               
         Mixed = "A03"
         Generation = "A04"
         Load = "A05"
