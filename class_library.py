@@ -18,11 +18,14 @@ class SQLManager():
 
     def upload_sql(self,df,table_name,schema_name):
         '''Uploads a pandas dataframe to a SQL table'''
-        try:
-            df.to_sql(table_name, con=self.db_engine, schema=schema_name, if_exists='append', index=False)
-            return True
-        except Exception as e:
-            logger.error(f"Error while uploading {table_name}: {e}")
+        if not df.empty:
+            try:
+                df.to_sql(table_name, con=self.db_engine, schema=schema_name, if_exists='append', index=False)
+                return True
+            except Exception as e:
+                logger.error(f"Error while uploading {table_name}: {e}")
+        else:
+            logger.error(f"No {table_name} data got from the API")
 
     def read_table(self,schema_name,table_name,latest_count=0):
         '''Reads a SQL table to a pandas dataframe'''
