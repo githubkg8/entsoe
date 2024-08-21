@@ -101,7 +101,7 @@ class DataManager():
             datetimes_utc = []
             datetimes_local = []
 
-            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\power_prices_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\power_prices_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                 f.write(soup.prettify())
 
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'DA_price': prices})
@@ -162,7 +162,7 @@ class DataManager():
             afrr_up = np.zeros(len(datetimes_utc))
             mfrr_up = np.zeros(len(datetimes_utc))
 
-            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\activated_balancing_energy_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\activated_balancing_energy_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                 f.write(soup.prettify())
         
         # check if the arrays have the same length, if not add zeros
@@ -221,7 +221,7 @@ class DataManager():
             igcc_down = np.zeros(len(datetimes_utc))
             igcc_up = np.zeros(len(datetimes_utc))
             
-            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\total_imbalance_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\total_imbalance_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                 f.write(soup.prettify())
 
 
@@ -294,7 +294,7 @@ class DataManager():
                         response_production_per_type[source_type][index] = quantity
                         i+=1
 
-                    with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\fuelmix_{source_type}_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+                    with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\fuelmix_{source_type}_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                         f.write(str(response_production_per_type[source_type]))
 
             # fill with 0s psr_types that are missing from the response
@@ -314,7 +314,7 @@ class DataManager():
             datetimes_utc = []
             datetimes_local = []
 
-            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\fuelmix_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\fuelmix_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                 f.write(soup.prettify())
 
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, **response_production_per_type})
@@ -350,7 +350,7 @@ class DataManager():
             datetimes_utc = []
             datetimes_local = []
 
-            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_total_load_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_total_load_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
                 f.write(soup.prettify())
 
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'Actual_load': total_load})
