@@ -320,6 +320,42 @@ class DataManager():
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, **response_production_per_type})
         return df
     
+    def __get_actual_total_load(self,periodStart,periodEnd):
+        '''Get the actual total load for Hungary, UTC timezone, fromat: YYYYMMDDhhmm'''
+
+        params={
+            "documentType" : self.entsoe_codes.DocumentType.System_total_load,
+            "ProcessType" : self.entsoe_codes.ProcessType.Realised,
+            "OutBiddingZone_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "periodStart" : periodStart,
+            "periodEnd" : periodEnd
+            }
+        
+        response=self.__get_entsoe_response(params)
+        soup=BeautifulSoup(response.text, 'xml')
+
+        try:
+            days = [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
+            RESOLUTION=timedelta(minutes=int(soup.find('resolution').getText().split('T')[1].split('M')[0]))
+            total_load=[int(load.getText()) for load in soup.find_all('quantity')]
+            datetimes_utc = []
+            datetimes_local = []
+            start_date = self.timezone_manager.get_utc_time(days[0])
+            for period in range(len(total_load)):
+                datetimes_utc.append(start_date + period*RESOLUTION)
+                datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
+        except Exception as e:
+            logger.error(f"Error while getting actual total load: {soup.find('Reason').find('text').text}")
+            total_load = []
+            datetimes_utc = []
+            datetimes_local = []
+
+            with open('C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_total_load_{periodStart}-{periodEnd}_troubleshoot.xml', 'w') as f:
+                f.write(soup.prettify())
+
+        df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'Actual_load': total_load})
+        return df
+
     def update_power_prices(self):
         '''Refreshes the power prices from the last updated date until days ahead'''
 
@@ -422,8 +458,38 @@ class DataManager():
             logger.info(f"fuelmix is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
         
-'''
-- Get full load 
+    def update_actual_total_load(self):
+        '''Refreshes the actual total load data from the last updated date until recent data'''
+
+        # Get the last timestamp from the database
+        # Set the periodStart and periodEnd for recent data
+        # Convert the local timezone to UTC
+        table_name='actual_total_load'
+
+        last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        if last_timestamp is None:
+            last_timestamp=self.data_start_date
+            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+        today = datetime.now()
+        
+        periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
+        periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
+        if periodStart_localtz != periodEnd_localtz:
+            for day in range((periodEnd_localtz - periodStart_localtz).days):
+                periodStart_i = periodStart_localtz+ timedelta(days=day)
+                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+
+                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+
+                df_atl=self.__get_actual_total_load(periodStart,periodEnd)
+                self.__upload_sql(df_atl,table_name,periodStart_i,periodEnd_i)
+        else:
+            logger.info(f"actual_total_load is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            return "No new data to update"
+
+
+''' 
 - Get big power plants schedule
 - Get capacity prices
 

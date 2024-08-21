@@ -7,6 +7,7 @@ def main():
         entsoe.update_power_prices()
         entsoe.update_activated_balancing_energy()
         entsoe.update_fuelmix()
+        entsoe.update_actual_total_load()
     
     except Exception as e:
         logging.error(f"Error: {e}")
