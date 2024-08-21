@@ -66,10 +66,10 @@ class DataManager():
         try:
             success=self.sql_manager.upload_sql(df,table_name,self.schema_name)
             if success:
-                logger.info(f"{table_name} refreshed successfully! ({periodStart_localtz.strftime('%Y-%m-%d')} - {(periodEnd_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+                logger.info(f"{self.schema_name} {table_name} refreshed successfully! ({periodStart_localtz.strftime('%Y-%m-%d')} - {(periodEnd_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
                 return "Success"
         except Exception as e:
-            logger.error(f"Error while refreshing {table_name}: {e}")
+            logger.error(f"Error while refreshing {self.schema_name} {table_name}: {e}")
             return f"Error: {e}"
 
     def __get_power_prices(self,periodStart,periodEnd):
@@ -88,7 +88,7 @@ class DataManager():
 
         try:
             days= [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
-            prices=[float(price.getText()) for price in soup.find_all('price.amount')]
+            prices=[float(price.getText()) for time_series in soup.find_all('TimeSeries') for price in time_series.find_all('price.amount') if time_series.find('resolution').getText() == 'PT60M']
 
             datetimes_utc = []
             datetimes_local = []
@@ -97,7 +97,7 @@ class DataManager():
                 datetimes_utc.append(start_date + timedelta(hours=hour))
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + timedelta(hours=hour))
         except Exception as e:
-            logger.error(f"Error while getting power prices: {soup.find('Reason').find('text').text}")
+            logger.error(f"Error while getting power prices: {self.schema_name}: {soup.find('Reason').find('text').text}")
             prices = []
             datetimes_utc = []
             datetimes_local = []
@@ -157,7 +157,7 @@ class DataManager():
                             and time_series.find('flowDirection.direction').getText() == self.entsoe_codes.FlowDirection.Up])
             
         except Exception as e:
-            logger.error(f"Error while getting activated balancing energy: {e} {soup.find('Reason').find('text').text}")
+            logger.error(f"Error while getting {self.schema_name} activated balancing energy: {e} {soup.find('Reason').find('text').text}")
             afrr_down = np.zeros(len(datetimes_utc))
             mfrr_down = np.zeros(len(datetimes_utc))
             afrr_up = np.zeros(len(datetimes_utc))
@@ -218,7 +218,7 @@ class DataManager():
             igcc_up = np.maximum(0,np.array([total_imbalance_up[time] for time in datetimes_utc_wo_tz]) - afrr_up - mfrr_up)
 
         except Exception as e:
-            logger.error(f"Error while getting total imbalance volume: {e}")
+            logger.error(f"Error while getting total {self.schema_name} imbalance volume: {e}")
             igcc_down = np.zeros(len(datetimes_utc))
             igcc_up = np.zeros(len(datetimes_utc))
             
@@ -243,7 +243,7 @@ class DataManager():
             price_down_dict={point.find("position").getText() : point.find("activation_Price.amount").getText() for time_series in soup.find_all('TimeSeries') for point in time_series.find_all('Point') if time_series.find('flowDirection.direction').getText() == self.entsoe_codes.FlowDirection.Down}
             price_up_dict={point.find("position").getText() : point.find("activation_Price.amount").getText() for time_series in soup.find_all('TimeSeries') for point in time_series.find_all('Point') if time_series.find('flowDirection.direction').getText() == self.entsoe_codes.FlowDirection.Up}
         except Exception as e:
-            logger.error(f"Error while getting prices of activated AFRR balancing energy: {e}")
+            logger.error(f"Error while getting {self.schema_name} prices of activated AFRR balancing energy: {e}")
             price_down_dict = {}
             price_up_dict = {}
 
@@ -286,7 +286,7 @@ class DataManager():
                 
                 if len(time_series.find_all('quantity')) < response_ts_max_length:
                     if len(response_production_per_type[source_type]) < response_ts_max_length:
-                        logger.warning(f"Source type {source_type} does not cover the whole period! ({start_source_series} - {end_source_series}) Filling data with 0s...")
+                        logger.warning(f"Source type {self.schema_name} {source_type} does not cover the whole period! ({start_source_series} - {end_source_series}) Filling data with 0s...")
                         response_production_per_type[source_type]=np.zeros(response_ts_max_length)
                     original_response = [int(quantity.get_text()) for quantity in time_series.find_all('quantity')]
                     i=0
@@ -310,7 +310,7 @@ class DataManager():
                 datetimes_utc.append(start_date + period*RESOLUTION)
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
         except Exception as e:
-            logger.error(f"Error while getting fuelmix: {soup.find('Reason').find('text').text}")
+            logger.error(f"Error while getting {self.schema_name} fuelmix: {soup.find('Reason').find('text').text}")
             response_production_per_type = []
             datetimes_utc = []
             datetimes_local = []
@@ -346,7 +346,7 @@ class DataManager():
                 datetimes_utc.append(start_date + period*RESOLUTION)
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
         except Exception as e:
-            logger.error(f"Error while getting actual total load: {soup.find('Reason').find('text').text}")
+            logger.error(f"Error while getting {self.schema_name} actual total load: {soup.find('Reason').find('text').text}")
             total_load = []
             datetimes_utc = []
             datetimes_local = []
@@ -368,10 +368,10 @@ class DataManager():
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         if last_timestamp is None:
             last_timestamp=self.data_start_date
-            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+            logger.warning(f"No data found: {self.schema_name} {table_name}, last_timestamp set to: {last_timestamp}")
         day_ahead_end = datetime.now() + timedelta(days=2)
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1) 
-        periodEnd_localtz = datetime(day_ahead_end.year,day_ahead_end.month,day_ahead_end.day,0,0) 
+        periodEnd_localtz = datetime(day_ahead_end.year,day_ahead_end.month,day_ahead_end.day,0,0)
 
         periodStart=self.timezone_manager.get_utc_time(periodStart_localtz).strftime('%Y%m%d%H%M')
         periodEnd=self.timezone_manager.get_utc_time(periodEnd_localtz).strftime('%Y%m%d%H%M')
@@ -394,7 +394,7 @@ class DataManager():
                     self.__upload_sql(df_da_prices,table_name,periodStart_i,periodEnd_i)                
 
         else:
-            logger.info(f"power_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            logger.info(f"{self.schema_name} power_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
 
     def update_activated_balancing_energy(self):
@@ -408,7 +408,7 @@ class DataManager():
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         if last_timestamp is None:
             last_timestamp=self.data_start_date
-            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+            logger.warning(f"No data found: {self.schema_name} {table_name}, last_timestamp set to: {last_timestamp}")
         today = datetime.now()
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
@@ -426,7 +426,7 @@ class DataManager():
                 self.__upload_sql(df_abe,table_name,periodStart_i,periodEnd_i)
                 
         else:
-                logger.info(f"activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+                logger.info(f"{self.schema_name} activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
                 return "No new data to update"
     
     def update_fuelmix(self):
@@ -440,7 +440,7 @@ class DataManager():
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         if last_timestamp is None:
             last_timestamp=self.data_start_date
-            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+            logger.warning(f"No data found: {self.schema_name} {table_name}, last_timestamp set to: {last_timestamp}")
         today = datetime.now()
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
@@ -456,7 +456,7 @@ class DataManager():
                 df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
                 self.__upload_sql(df_fuelmix,table_name,periodStart_i,periodEnd_i)
         else:
-            logger.info(f"fuelmix is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            logger.info(f"{self.schema_name} fuelmix is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
         
     def update_actual_total_load(self):
@@ -470,7 +470,7 @@ class DataManager():
         last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
         if last_timestamp is None:
             last_timestamp=self.data_start_date
-            logger.warning(f"No data found: {table_name}, last_timestamp set to: {last_timestamp}")
+            logger.warning(f"No data found: {self.schema_name} {table_name}, last_timestamp set to: {last_timestamp}")
         today = datetime.now()
         
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
@@ -486,7 +486,7 @@ class DataManager():
                 df_atl=self.__get_actual_total_load(periodStart,periodEnd)
                 self.__upload_sql(df_atl,table_name,periodStart_i,periodEnd_i)
         else:
-            logger.info(f"actual_total_load is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            logger.info(f"{self.schema_name} actual_total_load is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
 
 
