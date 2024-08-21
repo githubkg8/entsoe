@@ -26,6 +26,7 @@ class DataManager():
         self.sql_manager=SQLManager()
         self.data_start_date=datetime(2019,12,31,23,0)
         self.schema_name=schema
+        self.area_code=self.entsoe_codes.Areas.dict[schema]
         self.UTC_column="UTC"
         self.base_url=f"https://web-api.tp.entsoe.eu/api?securityToken={ENTSOE_TOKEN}"
 
@@ -76,8 +77,8 @@ class DataManager():
 
         params={
             "documentType" : self.entsoe_codes.DocumentType.Price_Document,
-            "in_Domain" : self.entsoe_codes.Areas.MAVIR,
-            "out_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "in_Domain" : self.area_code,
+            "out_Domain" : self.area_code,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd
             }
@@ -112,7 +113,7 @@ class DataManager():
         # DOMESTIC ACTIVATED BALANCING ENERGY
         params={
             "documentType" : self.entsoe_codes.DocumentType.Activated_balancing_quantities,
-            "controlArea_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "controlArea_Domain" : self.area_code,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd
             }
@@ -178,7 +179,7 @@ class DataManager():
         # TOTAL IMBALANCE VOLUME
         params={
             "documentType" : self.entsoe_codes.DocumentType.Imbalance_volume,
-            "controlArea_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "controlArea_Domain" : self.area_code,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd
             }
@@ -229,7 +230,7 @@ class DataManager():
         
         params={
             "documentType" : self.entsoe_codes.DocumentType.Activated_balancing_prices,
-            "controlArea_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "controlArea_Domain" : self.area_code,
             "businessType" : self.entsoe_codes.BusinessType.Automatic_frequency_restoration_reserve,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd
@@ -258,7 +259,7 @@ class DataManager():
 
         params={
             "documentType" : self.entsoe_codes.DocumentType.Actual_generation_per_type,
-            "in_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "in_Domain" : self.area_code,
             "ProcessType" : self.entsoe_codes.ProcessType.Realised,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd,
@@ -326,7 +327,7 @@ class DataManager():
         params={
             "documentType" : self.entsoe_codes.DocumentType.System_total_load,
             "ProcessType" : self.entsoe_codes.ProcessType.Realised,
-            "OutBiddingZone_Domain" : self.entsoe_codes.Areas.MAVIR,
+            "OutBiddingZone_Domain" : self.area_code,
             "periodStart" : periodStart,
             "periodEnd" : periodEnd
             }

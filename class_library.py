@@ -285,4 +285,7 @@ class EntsoeCodes:
     class Areas:
         ''' BZN-Bidding Zone | BZA-Bidding Zone Aggregation | CTA-Control Area | MBA-Market Balance Area| IBA-Imbalance Area | IPA-Imbalance Price Area |
             LFA-Load Frequency Control Area | LFB-Load Frequency Control Block | REG-Region | SCA-Scheduling Area | SNA-Synchronous Area'''
-        MAVIR="10YHU-MAVIR----U"
+        dict={
+            "HUN" : "10YHU-MAVIR----U",
+            "GER" : "10Y1001A1001A82H",
+        }
