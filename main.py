@@ -8,6 +8,7 @@ def main():
         entsoe_H.update_activated_balancing_energy()
         entsoe_H.update_fuelmix()
         entsoe_H.update_actual_total_load()
+        entsoe_H.update_actual_generation_per_unit()
     
         entsoe_D = DataManager(schema="GER", local_timezone='CET')
         entsoe_D.update_power_prices()

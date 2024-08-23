@@ -27,6 +27,7 @@ class DataManager():
         self.data_start_date=datetime(2019,12,31,23,0)
         self.schema_name=schema
         self.area_code=self.entsoe_codes.Areas.dict[schema]
+        self.ccgts=self.entsoe_codes.CCGTs.dict[schema]
         self.UTC_column="UTC"
         self.base_url=f"https://web-api.tp.entsoe.eu/api?securityToken={ENTSOE_TOKEN}"
 
@@ -87,12 +88,12 @@ class DataManager():
         soup=BeautifulSoup(response.text, 'xml')
 
         try:
-            days= [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
             prices=[float(price.getText()) for time_series in soup.find_all('TimeSeries') for price in time_series.find_all('price.amount') if time_series.find('resolution').getText() == 'PT60M']
 
             datetimes_utc = []
             datetimes_local = []
-            start_date = self.timezone_manager.get_utc_time(days[0])
+            start_date_naive = datetime.strptime(periodStart, '%Y%m%d%H%M')
+            start_date = start_date_naive.replace(tzinfo=self.timezone_manager.utc_tz)
             for hour in range(len(prices)):
                 datetimes_utc.append(start_date + timedelta(hours=hour))
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + timedelta(hours=hour))
@@ -269,13 +270,14 @@ class DataManager():
         soup=BeautifulSoup(response.text, 'xml')
 
         try:
-            days = [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
             RESOLUTION=timedelta(minutes=int(soup.find('resolution').getText().split('T')[1].split('M')[0]))
+            start_datetime = datetime.strptime(soup.find('time_Period.timeInterval').find('start').getText(), '%Y-%m-%dT%H:%MZ')
+            end_datetime = datetime.strptime(soup.find('time_Period.timeInterval').find('end').getText(), '%Y-%m-%dT%H:%MZ')
             # response is with codes, need to convert to readable format
             # get db column names (source types)
             response_production_per_type = {ts.find('psrType').get_text(): [int(quantity.get_text()) for quantity in ts.find_all("quantity")] for ts in soup.find_all('TimeSeries')}
             response_production_per_type = {self.entsoe_codes.PsrType.dict[key]: response_production_per_type[key] for key in response_production_per_type.keys()}
-            response_ts_max_length = max([len(response_production_per_type[key]) for key in response_production_per_type.keys()])
+            response_ts_max_length = (end_datetime-start_datetime) // RESOLUTION
             db_source_types = [row.column_name for index, row in self.sql_manager.get_column_names(self.schema_name, 'fuelmix')[2:].iterrows()]
 
             # filling with 0s if source type not covering the whole period
@@ -285,8 +287,8 @@ class DataManager():
                 source_type = self.entsoe_codes.PsrType.dict[time_series.find('psrType').get_text()]
                 
                 if len(time_series.find_all('quantity')) < response_ts_max_length:
+                    # check if it is already filled with 0s
                     if len(response_production_per_type[source_type]) < response_ts_max_length:
-                        logger.warning(f"Source type {self.schema_name} {source_type} does not cover the whole period! ({start_source_series} - {end_source_series}) Filling data with 0s...")
                         response_production_per_type[source_type]=np.zeros(response_ts_max_length)
                     original_response = [int(quantity.get_text()) for quantity in time_series.find_all('quantity')]
                     i=0
@@ -305,7 +307,8 @@ class DataManager():
 
             datetimes_utc = []
             datetimes_local = []
-            start_date = self.timezone_manager.get_utc_time(days[0])
+            start_date_naive = datetime.strptime(periodStart, '%Y%m%d%H%M')
+            start_date = start_date_naive.replace(tzinfo=self.timezone_manager.utc_tz)
             for period in range(len(response_production_per_type[next(iter(response_production_per_type))])):
                 datetimes_utc.append(start_date + period*RESOLUTION)
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
@@ -336,12 +339,12 @@ class DataManager():
         soup=BeautifulSoup(response.text, 'xml')
 
         try:
-            days = [datetime.strptime(day.text.split("T")[0],"%Y-%m-%d") for period in soup.find_all('Period') for day in period.find_all('end')]
             RESOLUTION=timedelta(minutes=int(soup.find('resolution').getText().split('T')[1].split('M')[0]))
             total_load=[int(load.getText()) for load in soup.find_all('quantity')]
             datetimes_utc = []
             datetimes_local = []
-            start_date = self.timezone_manager.get_utc_time(days[0])
+            start_date_naive = datetime.strptime(periodStart, '%Y%m%d%H%M')
+            start_date = start_date_naive.replace(tzinfo=self.timezone_manager.utc_tz)
             for period in range(len(total_load)):
                 datetimes_utc.append(start_date + period*RESOLUTION)
                 datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
@@ -356,6 +359,75 @@ class DataManager():
 
         df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, 'Actual_load': total_load})
         return df
+
+    def __get_ccgt_actual_generation(self,periodStart,periodEnd):
+        '''Get the CCGT actual generation for Hungary, UTC timezone, fromat: YYYYMMDDhhmm'''
+
+        params={
+            "documentType" : self.entsoe_codes.DocumentType.Actual_generation,
+            "ProcessType" : self.entsoe_codes.ProcessType.Realised,
+            "In_Domain" : self.area_code,
+            "periodStart" : periodStart,
+            "periodEnd" : periodEnd,
+            }
+        
+        response = self.__get_entsoe_response(params)
+        soup = BeautifulSoup(response.text, 'xml')
+
+        try:
+            RESOLUTION=timedelta(minutes=int(soup.find('resolution').getText().split('T')[1].split('M')[0]))
+            start_datetime = datetime.strptime(soup.find('time_Period.timeInterval').find('start').getText(), '%Y-%m-%dT%H:%MZ')
+            end_datetime = datetime.strptime(soup.find('time_Period.timeInterval').find('end').getText(), '%Y-%m-%dT%H:%MZ')
+
+            response_act_gen_per_unit = {time_series.find('name').getText().encode('latin1').decode('utf-8'): [int(generation.getText()) for generation in time_series.find_all('quantity')] for time_series in soup.find_all('TimeSeries') if time_series.find('PowerSystemResources').find('name').getText().encode('latin1').decode('utf-8') in self.ccgts}
+            response_ts_max_length = (end_datetime-start_datetime) // RESOLUTION
+
+            # filling with 0s if source type not covering the whole period
+            for time_series in soup.find_all('TimeSeries'):
+                start_source_series=datetime.strptime(time_series.find('timeInterval').find('start').get_text(), '%Y-%m-%dT%H:%MZ')
+                end_source_series=datetime.strptime(time_series.find('timeInterval').find('end').get_text(), '%Y-%m-%dT%H:%MZ')
+                machine = time_series.find('PowerSystemResources').find('name').getText().encode('latin1').decode('utf-8')
+                
+                if machine in self.ccgts:
+                    # check if it is already filled with 0s               
+                    if len(time_series.find_all('quantity')) < response_ts_max_length:
+                        if len(response_act_gen_per_unit[machine]) < response_ts_max_length:
+                            response_act_gen_per_unit[machine]=np.zeros(response_ts_max_length)
+                        original_response = [int(quantity.get_text()) for quantity in time_series.find_all('quantity')]
+                        i=0
+                        for quantity in original_response:
+                            index=(start_source_series - datetime.strptime(periodStart, '%Y%m%d%H%M')) // RESOLUTION + i
+                            response_act_gen_per_unit[machine][index] = quantity
+                            i+=1
+
+                        with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_generation_{machine}_{periodStart}-{periodEnd}_troubleshoot.xml', 'w', encoding='utf-8') as f:
+                            f.write(str(response_act_gen_per_unit[machine]))
+                        with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_generation_{periodStart}-{periodEnd}_troubleshoot.xml', 'w', encoding='utf-8') as f:
+                            f.write(soup.prettify())
+
+            # fill with 0s units that are missing from the response
+            for machine in self.entsoe_codes.CCGTs.dict[self.schema_name]:
+                if machine not in response_act_gen_per_unit.keys():
+                    response_act_gen_per_unit[machine] = [0 for _ in range(len(response_act_gen_per_unit[next(iter(response_act_gen_per_unit))]))]
+
+            datetimes_utc = []
+            datetimes_local = []
+            start_date_naive = datetime.strptime(periodStart, '%Y%m%d%H%M')
+            start_date = start_date_naive.replace(tzinfo=self.timezone_manager.utc_tz)
+            for period in range(len(response_act_gen_per_unit[next(iter(response_act_gen_per_unit))])):
+                datetimes_utc.append(start_date + period*RESOLUTION)
+                datetimes_local.append(start_date.astimezone(self.timezone_manager.local_tz) + period*RESOLUTION)
+        except Exception as e:
+            logger.error(f"Error while getting {self.schema_name} actual generation load: {soup.find('Reason').find('text').text}")
+            response_act_gen_per_unit = {}
+            datetimes_utc = []
+            datetimes_local = []
+
+            with open(f'C:\\Users\\Admin\\Projects\\entso-e\\troubleshoot\\actual_generation_load_{periodStart}-{periodEnd}_troubleshoot.xml', 'w', encoding='utf-8') as f:
+                f.write(soup.prettify())
+
+        df = pd.DataFrame({'UTC': datetimes_utc, 'local_datetime': datetimes_local, **response_act_gen_per_unit})
+        return df            
 
     def update_power_prices(self):
         '''Refreshes the power prices from the last updated date until days ahead'''
@@ -413,17 +485,26 @@ class DataManager():
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
 
+        periodStart=self.timezone_manager.get_utc_time(periodStart_localtz).strftime('%Y%m%d%H%M')
+        periodEnd=self.timezone_manager.get_utc_time(periodEnd_localtz).strftime('%Y%m%d%H%M')
+  
         #  EACH DAY IS RUNNED SEPARATELY (if incorrect mfrr data, fixed by adding 0s to the end of the array) 
-        if periodStart_localtz != periodEnd_localtz:
-            for day in range((periodEnd_localtz - periodStart_localtz).days):
-                periodStart_i = periodStart_localtz+ timedelta(days=day)
-                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+        if periodStart != periodEnd:
+            # Get activated balancing energy from ENTSO-E API, returns a pd dataframe
+            # Maximum period is 1 year, if the period is longer, it is divided into 1 day periods
+            if periodEnd_localtz - periodStart_localtz < timedelta(days=365):
+                df_balancing_energy=self.__get_balancing_energy(periodStart,periodEnd)
+                self.__upload_sql(df_balancing_energy,table_name,periodStart_localtz,periodEnd_localtz)
 
-                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
-                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
-            
-                df_abe=self.__get_balancing_energy(periodStart,periodEnd)
-                self.__upload_sql(df_abe,table_name,periodStart_i,periodEnd_i)
+            else:
+                for day in range((periodEnd_localtz - periodStart_localtz).days):
+                    periodStart_i = periodStart_localtz+ timedelta(days=day)
+                    periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+                    periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                    periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+                    
+                    df_balancing_energy=self.__get_balancing_energy(periodStart,periodEnd)
+                    self.__upload_sql(df_balancing_energy,table_name,periodStart_i,periodEnd_i)   
                 
         else:
                 logger.info(f"{self.schema_name} activated_balancing_prices are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
@@ -445,16 +526,25 @@ class DataManager():
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
 
-        if periodStart_localtz != periodEnd_localtz:
-            for day in range((periodEnd_localtz - periodStart_localtz).days):
-                periodStart_i = periodStart_localtz+ timedelta(days=day)
-                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+        periodStart=self.timezone_manager.get_utc_time(periodStart_localtz).strftime('%Y%m%d%H%M')
+        periodEnd=self.timezone_manager.get_utc_time(periodEnd_localtz).strftime('%Y%m%d%H%M')
 
-                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
-                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
-
+        if periodStart != periodEnd:
+            # Get fuelmix from ENTSO-E API, returns a pd dataframe
+            # Maximum period is 1 year, if the period is longer, it is divided into 1 day periods
+            if periodEnd_localtz - periodStart_localtz < timedelta(days=365):
                 df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
-                self.__upload_sql(df_fuelmix,table_name,periodStart_i,periodEnd_i)
+                self.__upload_sql(df_fuelmix,table_name,periodStart_localtz,periodEnd_localtz)
+
+            else:
+                for day in range((periodEnd_localtz - periodStart_localtz).days):
+                    periodStart_i = periodStart_localtz+ timedelta(days=day)
+                    periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+                    periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                    periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+                    
+                    df_fuelmix=self.__get_fuelmix(periodStart,periodEnd)
+                    self.__upload_sql(df_fuelmix,table_name,periodStart_i,periodEnd_i)   
         else:
             logger.info(f"{self.schema_name} fuelmix is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
@@ -475,23 +565,78 @@ class DataManager():
         
         periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
         periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
-        if periodStart_localtz != periodEnd_localtz:
-            for day in range((periodEnd_localtz - periodStart_localtz).days):
-                periodStart_i = periodStart_localtz+ timedelta(days=day)
-                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
 
-                periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
-                periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+        periodStart=self.timezone_manager.get_utc_time(periodStart_localtz).strftime('%Y%m%d%H%M')
+        periodEnd=self.timezone_manager.get_utc_time(periodEnd_localtz).strftime('%Y%m%d%H%M')
 
-                df_atl=self.__get_actual_total_load(periodStart,periodEnd)
-                self.__upload_sql(df_atl,table_name,periodStart_i,periodEnd_i)
+        if periodStart != periodEnd:
+            # Get the actual total load from ENTSO-E API, returns a pd dataframe
+            # Maximum period is 1 year, if the period is longer, it is divided into 1 day periods
+            if periodEnd_localtz - periodStart_localtz < timedelta(days=365):
+                df_actual_total_load=self.__get_actual_total_load(periodStart,periodEnd)
+                self.__upload_sql(df_actual_total_load,table_name,periodStart_localtz,periodEnd_localtz)
+
+            else:
+                for day in range((periodEnd_localtz - periodStart_localtz).days):
+                    periodStart_i = periodStart_localtz+ timedelta(days=day)
+                    periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+                    periodStart=self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                    periodEnd=self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+                    
+                    df_actual_total_load=self.__get_actual_total_load(periodStart,periodEnd)
+                    self.__upload_sql(df_actual_total_load,table_name,periodStart_i,periodEnd_i)   
         else:
             logger.info(f"{self.schema_name} actual_total_load is up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
             return "No new data to update"
 
 
-''' 
-- Get big power plants schedule
-- Get capacity prices
+    def update_actual_generation_per_unit(self):
+        '''Refreshes the CCGT schedules from the last updated date until recent data'''
+        
+        # Get the last timestamp from the database
+        # Set the periodStart and periodEnd for recent data
+        # Convert the local timezone to UTC
 
-'''
+        table_name='powerplant_actual_generation'
+
+        last_timestamp=self.sql_manager.get_last_row_element(self.schema_name,table_name,self.UTC_column)
+        if last_timestamp is None:
+            last_timestamp=self.data_start_date
+            logger.warning(f"No data found: {self.schema_name} {table_name}, last_timestamp set to: {last_timestamp}")
+        today = datetime.now()
+
+        periodStart_localtz = datetime(last_timestamp.year,last_timestamp.month,last_timestamp.day,0,0) + timedelta(days=1)
+        periodEnd_localtz = datetime(today.year,today.month,today.day,0,0)
+
+        periodStart=self.timezone_manager.get_utc_time(periodStart_localtz).strftime('%Y%m%d%H%M')
+        periodEnd=self.timezone_manager.get_utc_time(periodEnd_localtz).strftime('%Y%m%d%H%M')
+  
+
+        if periodStart != periodEnd:
+            # Get schedule from ENTSO-E API, returns a pd dataframe
+            # Maximum period is    !!! 1 DAY !!!    if the period is longer, it is divided into 1 day periods
+            for day in range((periodEnd_localtz - periodStart_localtz).days):
+                periodStart_i = periodStart_localtz+ timedelta(days=day)
+                periodEnd_i = periodStart_localtz + timedelta(days=day+1)
+                periodStart = self.timezone_manager.get_utc_time(periodStart_i).strftime('%Y%m%d%H%M')
+                periodEnd = self.timezone_manager.get_utc_time(periodEnd_i).strftime('%Y%m%d%H%M')
+
+                # handle days with 25 hours
+                if self.timezone_manager.get_utc_time(periodEnd_i) - self.timezone_manager.get_utc_time(periodStart_i) <= timedelta(hours=24):
+                    df_ccgt_schedules=self.__get_ccgt_actual_generation(periodStart,periodEnd)
+                    self.__upload_sql(df_ccgt_schedules,table_name,periodStart_i,periodEnd_i)
+                elif self.timezone_manager.get_utc_time(periodEnd_i) - self.timezone_manager.get_utc_time(periodStart_i) == timedelta(hours=25):
+                    start_hours=[0,23]
+                    end_hours=[23,24]
+                    print(f"periodStart: {periodStart}, periodEnd: {periodEnd} 25 hours")
+                    for i in range(len(start_hours)):
+                        periodStart = self.timezone_manager.get_utc_time(periodStart_i + timedelta(hours=start_hours[i])).strftime('%Y%m%d%H%M')
+                        periodEnd = self.timezone_manager.get_utc_time(periodStart_i + timedelta(hours=end_hours[i])).strftime('%Y%m%d%H%M')
+                        print(f"periodStart: {periodStart}, periodEnd: {periodEnd}")
+                        df_ccgt_schedules=self.__get_ccgt_actual_generation(periodStart,periodEnd)
+                        self.__upload_sql(df_ccgt_schedules,table_name,periodStart_i,periodEnd_i)
+                else:
+                    logger.error(f"Error while getting {self.schema_name} CCGT schedules: {self.timezone_manager.get_utc_time(periodStart_i)} - {self.timezone_manager.get_utc_time(periodEnd_i)}")
+        else:
+            logger.info(f"{self.schema_name} CCGT schedules are up to date! ({(periodStart_localtz+timedelta(-1)).strftime('%Y-%m-%d')})")
+            return "No new data to update"

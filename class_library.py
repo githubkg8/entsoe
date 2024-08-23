@@ -289,3 +289,9 @@ class EntsoeCodes:
             "HUN" : "10YHU-MAVIR----U",
             "GER" : "10Y1001A1001A82H",
         }
+    
+    class CCGTs:
+        dict={
+            "HUN" : ['CSP_GT1','CSP_GT2','CSP_ST','GÖNYÜ_gép1','DG3_gép7','DG3_gép8','KF_GT','KI_GTST'],
+            "GER" : [],
+        }
